@@ -4,8 +4,12 @@ import logging
 from enum import Enum
 
 import pandas as pd
-from sqlalchemy import create_engine, text, MetaData, Table, select, insert, update, delete
+from sqlalchemy import (
+    create_engine, text, MetaData, Table, select, insert, update, delete,
+    PrimaryKeyConstraint
+)
 from sqlalchemy.engine import Engine
+from sqlalchemy.schema import AddConstraint
 
 from .config import DatabaseConfig
 from .utils import validate_identifier, validate_identifiers
@@ -90,14 +94,16 @@ class DataLoader:
         )
 
         if primary_key and primary_key in df.columns:
-            # Use SQLAlchemy DDL for adding primary key
+            # Use SQLAlchemy DDL for adding primary key safely
             metadata = MetaData()
             metadata.reflect(bind=self.engine)
+            table = metadata.tables[table_name]
+            pk_column = table.c[primary_key]
+
+            # Create primary key constraint using SQLAlchemy DDL
+            pk_constraint = PrimaryKeyConstraint(pk_column, name=f"pk_{table_name}")
             with self.engine.connect() as conn:
-                # Using dialect-specific DDL through SQLAlchemy
-                conn.execute(text(
-                    f"ALTER TABLE \"{table_name}\" ADD PRIMARY KEY (\"{primary_key}\")"
-                ))
+                conn.execute(AddConstraint(pk_constraint))
                 conn.commit()
 
     def load(
