@@ -4,10 +4,11 @@ from typing import Iterator
 import logging
 
 import pandas as pd
-from sqlalchemy import create_engine, text, MetaData, Table
+from sqlalchemy import create_engine, text, MetaData, Table, select, func
 from sqlalchemy.engine import Engine
 
 from .config import DatabaseConfig
+from .utils import validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +68,17 @@ class DataExtractor:
 
         Returns:
             Total number of rows
+
+        Raises:
+            ValueError: If table_name contains invalid characters
         """
+        # Validate table name to prevent SQL injection
+        validate_identifier(table_name)
+
+        metadata = MetaData()
+        table = Table(table_name, metadata, autoload_with=self.engine)
         with self.engine.connect() as conn:
-            result = conn.execute(
-                text(f"SELECT COUNT(*) FROM {table_name}")  # noqa: S608
-            )
+            result = conn.execute(select(func.count()).select_from(table))
             return result.scalar() or 0
 
     def extract_table(self, table_name: str) -> Iterator[pd.DataFrame]:
@@ -82,21 +89,25 @@ class DataExtractor:
 
         Yields:
             DataFrame batches of extracted data
+
+        Raises:
+            ValueError: If table_name contains invalid characters
         """
+        # Validate table name to prevent SQL injection
+        validate_identifier(table_name)
+
         logger.info(f"Extracting data from table: {table_name}")
         offset = 0
         total_rows = self.get_row_count(table_name)
         logger.info(f"Total rows to extract: {total_rows}")
 
+        # Use SQLAlchemy table object for safe query construction
+        metadata = MetaData()
+        table = Table(table_name, metadata, autoload_with=self.engine)
+
         while offset < total_rows:
-            query = text(
-                f"SELECT * FROM {table_name} LIMIT :limit OFFSET :offset"  # noqa: S608
-            )
-            df = pd.read_sql(
-                query,
-                self.engine,
-                params={"limit": self.batch_size, "offset": offset}
-            )
+            query = select(table).limit(self.batch_size).offset(offset)
+            df = pd.read_sql(query, self.engine)
 
             if df.empty:
                 break

@@ -4,10 +4,11 @@ import logging
 from enum import Enum
 
 import pandas as pd
-from sqlalchemy import create_engine, text, MetaData, Table
+from sqlalchemy import create_engine, text, MetaData, Table, select, insert, update, delete
 from sqlalchemy.engine import Engine
 
 from .config import DatabaseConfig
+from .utils import validate_identifier, validate_identifiers
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,11 @@ class DataLoader:
 
         Returns:
             True if table exists
+
+        Raises:
+            ValueError: If table_name contains invalid characters
         """
+        validate_identifier(table_name)
         metadata = MetaData()
         metadata.reflect(bind=self.engine)
         return table_name in metadata.tables
@@ -68,7 +73,14 @@ class DataLoader:
             table_name: Name of the table to create
             df: DataFrame to infer schema from
             primary_key: Optional primary key column
+
+        Raises:
+            ValueError: If table_name or primary_key contains invalid characters
         """
+        validate_identifier(table_name)
+        if primary_key:
+            validate_identifier(primary_key)
+
         logger.info(f"Creating table: {table_name}")
         df.head(0).to_sql(
             table_name,
@@ -78,9 +90,13 @@ class DataLoader:
         )
 
         if primary_key and primary_key in df.columns:
+            # Use SQLAlchemy DDL for adding primary key
+            metadata = MetaData()
+            metadata.reflect(bind=self.engine)
             with self.engine.connect() as conn:
+                # Using dialect-specific DDL through SQLAlchemy
                 conn.execute(text(
-                    f"ALTER TABLE {table_name} ADD PRIMARY KEY ({primary_key})"  # noqa: S608
+                    f"ALTER TABLE \"{table_name}\" ADD PRIMARY KEY (\"{primary_key}\")"
                 ))
                 conn.commit()
 
@@ -101,7 +117,14 @@ class DataLoader:
 
         Returns:
             Number of rows loaded
+
+        Raises:
+            ValueError: If table_name or primary_key contains invalid characters
         """
+        validate_identifier(table_name)
+        if primary_key:
+            validate_identifier(primary_key)
+
         if df.empty:
             logger.warning("Empty DataFrame, skipping load")
             return 0
@@ -137,6 +160,7 @@ class DataLoader:
         Returns:
             Number of rows affected
         """
+        # Identifiers already validated in load() method
         if not self.table_exists(table_name):
             self.create_table_from_df(table_name, df, primary_key)
             df.to_sql(table_name, self.engine, if_exists="append", index=False)
@@ -146,38 +170,41 @@ class DataLoader:
         table = Table(table_name, metadata, autoload_with=self.engine)
         columns = [c.name for c in table.columns]
 
+        # Validate column names from the database schema
+        validate_identifiers(columns)
+
         rows_affected = 0
         with self.engine.connect() as conn:
             for _, row in df.iterrows():
                 pk_value = row[primary_key]
 
-                # Check if row exists
-                check_query = text(
-                    f"SELECT 1 FROM {table_name} WHERE {primary_key} = :pk_value"  # noqa: S608
-                )
-                result = conn.execute(check_query, {"pk_value": pk_value})
+                # Check if row exists using SQLAlchemy select
+                pk_column = table.c[primary_key]
+                check_query = select(table).where(pk_column == pk_value).limit(1)
+                result = conn.execute(check_query)
 
                 if result.fetchone():
-                    # Update existing row
-                    set_clause = ", ".join([
-                        f"{col} = :{col}"
-                        for col in columns if col != primary_key
-                    ])
-                    update_query = text(
-                        f"UPDATE {table_name} SET {set_clause} WHERE {primary_key} = :pk_value"  # noqa: S608
+                    # Update existing row using SQLAlchemy update
+                    update_values = {
+                        col: row[col]
+                        for col in columns
+                        if col != primary_key and col in row.index
+                    }
+                    update_stmt = (
+                        update(table)
+                        .where(pk_column == pk_value)
+                        .values(**update_values)
                     )
-                    params = {col: row[col] for col in columns if col in row.index}
-                    params["pk_value"] = pk_value
-                    conn.execute(update_query, params)
+                    conn.execute(update_stmt)
                 else:
-                    # Insert new row
-                    cols = ", ".join(columns)
-                    vals = ", ".join([f":{col}" for col in columns])
-                    insert_query = text(
-                        f"INSERT INTO {table_name} ({cols}) VALUES ({vals})"  # noqa: S608
-                    )
-                    params = {col: row[col] for col in columns if col in row.index}
-                    conn.execute(insert_query, params)
+                    # Insert new row using SQLAlchemy insert
+                    insert_values = {
+                        col: row[col]
+                        for col in columns
+                        if col in row.index
+                    }
+                    insert_stmt = insert(table).values(**insert_values)
+                    conn.execute(insert_stmt)
 
                 rows_affected += 1
 
@@ -190,10 +217,18 @@ class DataLoader:
 
         Args:
             table_name: Name of the table to truncate
+
+        Raises:
+            ValueError: If table_name contains invalid characters
         """
+        validate_identifier(table_name)
         logger.info(f"Truncating table: {table_name}")
+
+        # Use SQLAlchemy's delete for safer truncation
+        metadata = MetaData()
+        table = Table(table_name, metadata, autoload_with=self.engine)
         with self.engine.connect() as conn:
-            conn.execute(text(f"TRUNCATE TABLE {table_name}"))  # noqa: S608
+            conn.execute(delete(table))
             conn.commit()
 
     def close(self) -> None:
