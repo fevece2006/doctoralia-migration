@@ -144,34 +144,35 @@ class Migrator:
             result.rows_extracted = 0
 
             pbar = None
-            if show_progress:
-                pbar = tqdm(
-                    total=total_rows,
-                    desc=f"Migrating {table_name}",
-                    unit="rows"
-                )
+            try:
+                if show_progress:
+                    pbar = tqdm(
+                        total=total_rows,
+                        desc=f"Migrating {table_name}",
+                        unit="rows"
+                    )
 
-            for batch in self.extractor.extract_table(table_name):
-                batch_size = len(batch)
-                result.rows_extracted += batch_size
+                for batch in self.extractor.extract_table(table_name):
+                    batch_size = len(batch)
+                    result.rows_extracted += batch_size
 
-                # Transform data
-                transformed = self.transformer.transform(batch)
+                    # Transform data
+                    transformed = self.transformer.transform(batch)
 
-                # Load data
-                loaded = self.loader.load(
-                    transformed,
-                    table_name,
-                    mode=mode,
-                    primary_key=primary_key
-                )
-                result.rows_loaded += loaded
+                    # Load data
+                    loaded = self.loader.load(
+                        transformed,
+                        table_name,
+                        mode=mode,
+                        primary_key=primary_key
+                    )
+                    result.rows_loaded += loaded
 
+                    if pbar:
+                        pbar.update(batch_size)
+            finally:
                 if pbar:
-                    pbar.update(batch_size)
-
-            if pbar:
-                pbar.close()
+                    pbar.close()
 
             result.status = MigrationStatus.COMPLETED
             logger.info(

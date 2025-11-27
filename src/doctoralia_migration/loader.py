@@ -95,13 +95,15 @@ class DataLoader:
 
         if primary_key and primary_key in df.columns:
             # Use SQLAlchemy DDL for adding primary key safely
+            # table_name is already validated at the start of this method
             metadata = MetaData()
             metadata.reflect(bind=self.engine)
             table = metadata.tables[table_name]
             pk_column = table.c[primary_key]
 
-            # Create primary key constraint using SQLAlchemy DDL
-            pk_constraint = PrimaryKeyConstraint(pk_column, name=f"pk_{table_name}")
+            # Create constraint name using validated table_name
+            constraint_name = f"pk_{table_name}"
+            pk_constraint = PrimaryKeyConstraint(pk_column, name=constraint_name)
             with self.engine.connect() as conn:
                 conn.execute(AddConstraint(pk_constraint))
                 conn.commit()
