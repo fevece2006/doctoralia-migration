@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model doctors {
+  id                  BigInt                @id @default(autoincrement())
+  full_name           String
+  specialty           String
+  city                String
+  address             String?
+  phone_country_code  String?               @db.VarChar(8)
+  phone_number        String?               @db.VarChar(32)
+  rating              Float?                @db.Real
+  review_count        Int?
+  source_profile_url  String
+  treatments          treatments[]
+  availability        doctor_availability[]
+  appointments        appointments[]
+
+  @@index([city], name: "idx_doctors_city")
+  @@index([specialty], name: "idx_doctors_specialty")
+}
+
+model treatments {
+  id               BigInt         @id @default(autoincrement())
+  doctor_id        BigInt
+  name             String
+  price            Decimal?       @db.Decimal(10, 2)
+  currency         String?        @db.Char(3)
+  duration_minutes Int?
+  doctors          doctors        @relation(fields: [doctor_id], references: [id], onDelete: Cascade)
+  appointments     appointments[]
+
+  @@unique([doctor_id, name], name: "ux_treatments_doctor_name")
+  @@index([doctor_id], name: "idx_treatments_doctor_id")
+}
+
+model doctor_availability {
+  id        BigInt   @id @default(autoincrement())
+  doctor_id BigInt
+  start_at  DateTime @db.Timestamp(6)
+  end_at    DateTime @db.Timestamp(6)
+  modality  String
+  doctors   doctors  @relation(fields: [doctor_id], references: [id], onDelete: Cascade)
+
+  @@index([doctor_id], name: "idx_doctor_availability_doctor_id")
+  @@index([start_at], name: "idx_doctor_availability_start_at")
+}
+
+model patients {
+  id              BigInt         @id @default(autoincrement())
+  full_name       String
+  document_number String?        @db.VarChar(32)
+  phone_number    String?        @db.VarChar(32)
+  email           String?
+  appointments    appointments[]
+
+  @@index([email], name: "idx_patients_email")
+}
+
+model appointments {
+  id           BigInt     @id @default(autoincrement())
+  doctor_id    BigInt
+  patient_id   BigInt
+  treatment_id BigInt
+  start_at     DateTime   @db.Timestamp(6)
+  end_at       DateTime   @db.Timestamp(6)
+  status       String     @default("scheduled")
+  doctors      doctors    @relation(fields: [doctor_id], references: [id], onDelete: Cascade)
+  patients     patients   @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  treatments   treatments @relation(fields: [treatment_id], references: [id], onDelete: Cascade)
+
+  @@index([doctor_id], name: "idx_appointments_doctor_id")
+  @@index([patient_id], name: "idx_appointments_patient_id")
+  @@index([treatment_id], name: "idx_appointments_treatment_id")
+  @@index([start_at], name: "idx_appointments_start_at")
+  @@index([status], name: "idx_appointments_status")
+}

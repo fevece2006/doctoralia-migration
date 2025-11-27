@@ -1,0 +1,30 @@
+{
+  "name": "doctoralia-migration",
+  "version": "1.0.0",
+  "main": "dist/pipeline/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/pipeline/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/pipeline/index.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.0.0",
+    "playwright": "^1.40.0",
+    "pino": "^8.16.0",
+    "pino-pretty": "^10.2.0",
+    "axios": "^1.6.0",
+    "zod": "^3.22.0",
+    "@faker-js/faker": "^8.3.1",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "prisma": "^5.0.0",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.10.0"
+  }
+}
